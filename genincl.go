@@ -2,6 +2,7 @@ package genincl
 
 import (
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
 	"time"
@@ -17,6 +18,40 @@ var genfiles map[string]File
 
 func Register(files map[string]File) {
 	genfiles = files
+}
+
+type Reader struct {
+	file     File
+	location int
+}
+
+func Open(filename string) (io.ReadCloser, error) {
+	_, err := os.Stat(filename)
+	if err == nil {
+		f, err := os.Open(filename)
+		return f, err
+	}
+
+	file, ok := genfiles[filename]
+
+	if ok == false {
+		return nil, fmt.Errorf("unknown filename %s", filename)
+	}
+
+	return &Reader{
+		file:     file,
+		location: 0,
+	}, nil
+}
+
+func (r *Reader) Read(buf []byte) (int, error) {
+	n := copy(buf, r.file.Data[r.location:])
+	r.location += n
+	return n, nil
+}
+
+func (r *Reader) Close() error {
+	return nil
 }
 
 func ReadFile(filename string) ([]byte, error) {
