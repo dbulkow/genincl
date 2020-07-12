@@ -1,7 +1,8 @@
 package main
 
 import (
-	"bufio"
+	"bytes"
+	"compress/zlib"
 	"flag"
 	"fmt"
 	"io"
@@ -22,17 +23,23 @@ func addfile(filename string, out io.Writer) error {
 		return err
 	}
 
-	b := bufio.NewReader(file)
-
 	fmt.Fprintf(out, "\t\"%s\": File{\n", filename)
 	fmt.Fprintf(out, "\t\tModsec:  %d,\n", fi.ModTime().Unix())
 	fmt.Fprintf(out, "\t\tModnano: %d,\n", fi.ModTime().Nanosecond())
+	fmt.Fprintf(out, "\t\tLength: %d,\n", fi.Size())
+	fmt.Fprintf(out, "\t\tFormat: \"zlib\",\n")
 	fmt.Fprintf(out, "\t\tData: []byte{\n")
 
-	var buf = make([]byte, 1)
+	var b bytes.Buffer
+
+	w := zlib.NewWriter(&b)
+	io.Copy(w, file)
+	w.Close()
+
+	var p = []byte{0}
 	var offset = 0
 	for {
-		n, err := b.Read(buf)
+		n, err := b.Read(p)
 		if err != nil || n == 0 {
 			if err == io.EOF {
 				fmt.Fprintln(out)
@@ -53,7 +60,7 @@ func addfile(filename string, out io.Writer) error {
 			fmt.Fprint(out, " ")
 		}
 
-		fmt.Fprintf(out, "0x%2.2x,", buf[0])
+		fmt.Fprintf(out, "0x%2.2x,", p[0])
 
 		offset++
 	}

@@ -1,6 +1,8 @@
 package genincl
 
 import (
+	"bytes"
+	"compress/zlib"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -12,6 +14,8 @@ type File struct {
 	Data    []byte
 	Modsec  int64
 	Modnano int64
+	Length  int64
+	Format  string
 }
 
 var genfiles map[string]File
@@ -22,6 +26,7 @@ func Register(files map[string]File) {
 
 type Reader struct {
 	file     File
+	data     []byte
 	location int
 }
 
@@ -38,14 +43,32 @@ func Open(filename string) (io.ReadCloser, error) {
 		return nil, fmt.Errorf("unknown filename %s", filename)
 	}
 
+	buf := &bytes.Buffer{}
+
+	if file.Format == "zlib" {
+		var b = bytes.NewReader(file.Data)
+
+		r, err := zlib.NewReader(b)
+		if err != nil {
+			return nil, fmt.Errorf("data format error: %v", err)
+		}
+
+		if _, err := io.Copy(buf, r); err != nil {
+			return nil, fmt.Errorf("data read error: %v", err)
+		}
+	} else {
+		buf = bytes.NewBuffer(file.Data)
+	}
+
 	return &Reader{
 		file:     file,
+		data:     buf.Bytes(),
 		location: 0,
 	}, nil
 }
 
 func (r *Reader) Read(buf []byte) (int, error) {
-	n := copy(buf, r.file.Data[r.location:])
+	n := copy(buf, r.data[r.location:])
 	r.location += n
 	return n, nil
 }
@@ -65,7 +88,19 @@ func ReadFile(filename string) ([]byte, error) {
 		return nil, fmt.Errorf("readfile %s: file not found", filename)
 	}
 
-	return file.Data, nil
+	var out = &bytes.Buffer{}
+	var in = bytes.NewBuffer(file.Data)
+
+	r, err := zlib.NewReader(in)
+	if err != nil {
+		return nil, fmt.Errorf("readfile %s: zlib error %v", filename, err)
+	}
+	if _, err := io.Copy(out, r); err != nil {
+		return nil, fmt.Errorf("readfile %s: zlib copy %v", filename, err)
+	}
+	r.Close()
+
+	return out.Bytes(), nil
 }
 
 func Stat(filename string) (os.FileInfo, error) {
@@ -92,7 +127,7 @@ func newFileInfo(filename string) (os.FileInfo, error) {
 
 	return &fileinfo{
 		filename: filename,
-		size:     int64(len(file.Data)),
+		size:     file.Length,
 		modsec:   file.Modsec,
 		modnano:  file.Modnano,
 	}, nil
